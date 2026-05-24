@@ -1,0 +1,24 @@
+app:
+  name: auto-cyber-news
+  environment: ${APP_ENV:-development}
+  timezone: ${DIGEST_TIMEZONE:-UTC}
+
+database:
+  sqlite_path: ${SQLITE_PATH:-data/auto-cyber-news.db}
+
+http:
+  timeout_seconds: 20
+  total_retries: 2
+  user_agent: auto-cyber-news/0.1.0
+  max_concurrency: 8
+
+digest:
+  window_hours: 24
+  max_articles: 50
+  subject_prefix: Cybersecurity Daily Digest
+
+alerts:
+  critical_freshness_minutes: 180
+  dry_run: ${ALERTS_DRY_RUN:-true}
+  alert_cooldown_hours: ${ALERT_COOLDOWN_HOURS:-6}
+

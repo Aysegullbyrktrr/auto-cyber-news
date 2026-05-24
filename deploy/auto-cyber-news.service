@@ -1,0 +1,26 @@
+[Unit]
+Description=Auto Cyber News monitoring daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=auto-cyber-news
+Group=auto-cyber-news
+WorkingDirectory=/opt/auto-cyber-news
+Environment=APP_ENV=production
+Environment=PYTHONPATH=/opt/auto-cyber-news/src
+Environment=SCHEDULER_INTERVAL_MINUTES=15
+Environment=ALERTS_DRY_RUN=false
+ExecStart=/opt/auto-cyber-news/.venv/bin/python -m auto_cyber_news run-scheduler
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
