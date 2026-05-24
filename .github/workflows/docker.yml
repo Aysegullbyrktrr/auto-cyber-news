@@ -1,0 +1,23 @@
+name: Docker
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t auto-cyber-news:ci .
+
+      - name: Smoke test
+        run: docker run --rm auto-cyber-news:ci --help
+

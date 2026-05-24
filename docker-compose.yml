@@ -1,0 +1,15 @@
+services:
+  auto-cyber-news:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      CONFIG_DIR: /app/config
+      SQLITE_PATH: /app/data/auto-cyber-news.db
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    command: ["--help"]
+

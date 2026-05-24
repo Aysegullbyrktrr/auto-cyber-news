@@ -1,0 +1,73 @@
+sources:
+  - id: the_hacker_news
+    name: The Hacker News
+    type: rss
+    enabled: true
+    url: https://feeds.feedburner.com/TheHackersNews
+    homepage: https://thehackernews.com/
+    poll_interval_minutes: 60
+    reliability_weight: 1.0
+    category_hints: []
+
+  - id: bleeping_computer
+    name: BleepingComputer
+    type: rss
+    enabled: true
+    url: https://www.bleepingcomputer.com/feed/
+    homepage: https://www.bleepingcomputer.com/
+    poll_interval_minutes: 60
+    reliability_weight: 1.0
+    category_hints: []
+
+  - id: krebs_on_security
+    name: KrebsOnSecurity
+    type: rss
+    enabled: true
+    url: https://krebsonsecurity.com/feed/
+    homepage: https://krebsonsecurity.com/
+    poll_interval_minutes: 120
+    reliability_weight: 1.0
+    category_hints: []
+
+  - id: dark_reading
+    name: DarkReading
+    type: rss
+    enabled: true
+    url: https://www.darkreading.com/rss.xml
+    homepage: https://www.darkreading.com/
+    poll_interval_minutes: 60
+    reliability_weight: 1.0
+    category_hints: []
+
+  - id: security_week
+    name: SecurityWeek
+    type: rss
+    enabled: true
+    url: https://www.securityweek.com/feed/
+    homepage: https://www.securityweek.com/
+    poll_interval_minutes: 60
+    reliability_weight: 1.0
+    category_hints: []
+
+  - id: cisco_talos
+    name: Cisco Talos
+    type: rss
+    enabled: true
+    url: https://blog.talosintelligence.com/rss/
+    homepage: https://blog.talosintelligence.com/
+    poll_interval_minutes: 120
+    reliability_weight: 1.0
+    category_hints:
+      - threat_intelligence
+
+  - id: sans_isc
+    name: SANS ISC
+    type: rss
+    enabled: true
+    url: https://isc.sans.edu/rssfeed.xml
+    homepage: https://isc.sans.edu/
+    poll_interval_minutes: 60
+    reliability_weight: 1.0
+    category_hints:
+      - threat_intelligence
+

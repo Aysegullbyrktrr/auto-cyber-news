@@ -1,0 +1,35 @@
+severity:
+  thresholds:
+    info: 0
+    low: 20
+    medium: 40
+    high: 60
+    critical: 80
+  decisions:
+    telegram_alert_min_level: critical
+    email_digest_min_level: medium
+  rules:
+    - id: active_exploitation
+      description: Active exploitation language in article title or summary.
+      weight: 35
+      terms: ["actively exploited", "in the wild", "mass exploitation"]
+    - id: ransomware
+      description: Ransomware impact or campaign language.
+      weight: 25
+      terms: ["ransomware", "extortion"]
+    - id: emergency_patch
+      description: Emergency or out-of-band patch language.
+      weight: 25
+      terms: ["emergency patch", "out-of-band", "urgent update"]
+    - id: data_breach
+      description: Data breach or leaked records language.
+      weight: 20
+      terms: ["data breach", "leaked records", "exposed database"]
+    - id: cve_presence
+      description: Article references one or more CVE identifiers.
+      weight: 15
+      terms: ["cve-"]
+    - id: exploit
+      description: Exploit or proof-of-concept language.
+      weight: 20
+      terms: ["exploit", "exploitation", "poc"]

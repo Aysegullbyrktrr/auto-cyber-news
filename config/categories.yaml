@@ -1,0 +1,37 @@
+categories:
+  - id: vulnerability
+    name: Vulnerability
+    keywords: ["cve", "vulnerability", "zero-day", "patch"]
+  - id: zero_day
+    name: Zero-Day
+    keywords: ["zero-day", "0-day", "zero day"]
+  - id: exploit
+    name: Exploit
+    keywords: ["exploit", "exploitation", "poc"]
+  - id: ransomware
+    name: Ransomware
+    keywords: ["ransomware", "extortion", "encryptor"]
+  - id: malware
+    name: Malware
+    keywords: ["malware", "trojan", "backdoor", "loader"]
+  - id: phishing
+    name: Phishing
+    keywords: ["phishing", "credential theft", "social engineering"]
+  - id: data_breach
+    name: Data Breach
+    keywords: ["breach", "leak", "exposed data"]
+  - id: nation_state
+    name: Nation-State
+    keywords: ["apt", "nation-state", "state-sponsored"]
+  - id: supply_chain
+    name: Supply Chain
+    keywords: ["supply chain", "dependency", "package repository"]
+  - id: cloud_security
+    name: Cloud Security
+    keywords: ["aws", "azure", "gcp", "cloud"]
+  - id: ai_security
+    name: AI Security
+    keywords: ["ai security", "llm", "prompt injection", "model poisoning"]
+  - id: threat_intelligence
+    name: Threat Intelligence
+    keywords: ["ioc", "campaign", "threat actor", "indicators"]
