@@ -8,7 +8,6 @@ import pytest
 
 from auto_cyber_news.notifications.email import load_email_settings
 from auto_cyber_news.notifications.formatting import (
-    CARD_DIVIDER,
     TELEGRAM_MAX_CHARS,
     escape_telegram_markdown,
     format_telegram_alert,
@@ -77,26 +76,25 @@ def _incident_card(**overrides: object) -> str:
     return format_telegram_incident_alert(**params)  # type: ignore[arg-type]
 
 
-def test_incident_card_has_structured_sections() -> None:
-    """The incident card should render fixed emoji-labelled sections and dividers."""
+def test_incident_card_has_clean_sections_without_dividers() -> None:
+    """The incident card uses a colour header, bold title, and emoji sections."""
     message = _incident_card()
 
-    assert message.startswith(CARD_DIVIDER)
-    assert message.rstrip().endswith(CARD_DIVIDER)
-    assert "🚨 *\\[INCIDENT CRITICAL\\]* Risk: 95/100" in message
-    assert "📌 *Title:*" in message
-    assert "🧠 *AI Summary:*" in message
-    assert "🏷 *Categories:*" in message
-    assert "⚠ *CVEs:*" in message
-    assert "📰 *Sources:*" in message
+    assert "─" not in message  # no divider lines
+    assert message.startswith("🔴 *CRITICAL* · Risk 95/100")
+    assert "*Active ransomware exploit*" in message  # bold headline
+    assert "🧠 " in message  # summary
+    assert "🏷 " in message  # categories
+    assert "⚠️ " in message  # CVEs
+    assert "📰 *Sources*" in message
 
 
-def test_incident_card_summary_falls_back_to_title_when_ai_missing() -> None:
-    """Summary must never be empty: fall back to the headline."""
+def test_incident_card_omits_summary_when_ai_missing() -> None:
+    """With no AI summary, the brain line is omitted (the bold title carries it)."""
     message = _incident_card(ai_summary="", title="Critical zero-day in widget")
 
-    summary_block = message.split("🧠 *AI Summary:*\n", 1)[1].split("\n\n", 1)[0]
-    assert summary_block.strip() == escape_telegram_markdown("Critical zero-day in widget")
+    assert "🧠" not in message
+    assert "*Critical zero\\-day in widget*" in message
 
 
 def test_incident_card_truncates_cves_with_remainder() -> None:
@@ -126,7 +124,7 @@ def test_incident_card_lists_overflow_under_related() -> None:
     rows = tuple((f"Story {index}", f"https://example.com/{index}", "Site") for index in range(8))
     message = _incident_card(related_articles=rows, max_related_articles=5)
 
-    assert "🔗 *Related:*" in message
+    assert "🔗 *Related*" in message
     assert "Story 7" in message
 
 

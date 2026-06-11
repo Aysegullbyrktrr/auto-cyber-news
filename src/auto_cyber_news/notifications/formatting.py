@@ -10,7 +10,8 @@ MAX_CVES_IN_CARD = 10
 MAX_SOURCES_IN_CARD = 5
 MAX_RELATED_IN_CARD = 5
 MAX_SUMMARY_CHARS_IN_CARD = 600
-CARD_DIVIDER = "─" * 28
+
+_SEVERITY_BADGES = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}
 
 
 def escape_telegram_markdown(text: str) -> str:
@@ -62,64 +63,62 @@ def format_telegram_incident_alert(
 ) -> str:
     """Build a compact SOC-style incident card for Telegram (MarkdownV2).
 
-    The layout is mobile-first: a fixed set of emoji-labelled sections, an
-    always-present summary, aggressively truncated CVE list, a deduplicated
-    source list, and an optional "Related" overflow section. The final message
-    is capped at :data:`TELEGRAM_MAX_CHARS`.
+    The layout is mobile-first and clean: a colour-coded severity header, the
+    headline in bold, an optional AI summary, compact category/CVE lines, and a
+    deduplicated source list with an optional "Related" overflow. Empty fields
+    are omitted entirely. The final message is capped at
+    :data:`TELEGRAM_MAX_CHARS`.
     """
-    summary = _incident_summary_text(ai_summary, fallback=title)
-    category_text = ", ".join(categories) if categories else "none"
-    cve_text = _format_cve_list(detected_cves)
-
+    esc = escape_telegram_markdown
     unique_articles = _dedupe_article_rows(related_articles)
     source_rows = unique_articles[:max_related_articles]
     overflow = unique_articles[max_related_articles:]
     related_rows = overflow[:MAX_RELATED_IN_CARD]
     related_extra = len(overflow) - len(related_rows)
 
-    esc = escape_telegram_markdown
     lines = [
-        CARD_DIVIDER,
-        f"🚨 *\\[INCIDENT {esc(severity.upper())}\\]* Risk: {risk_score}/100",
-        f"📌 *Title:* {esc(title)}",
+        f"{_severity_badge(severity)} *{esc(severity.upper())}* · Risk {risk_score}/100",
         "",
-        "🧠 *AI Summary:*",
-        esc(summary),
-        "",
-        "🏷 *Categories:*",
-        esc(category_text),
-        "",
-        "⚠ *CVEs:*",
-        esc(cve_text),
-        "",
-        "📰 *Sources:*",
+        f"*{esc(title)}*",
     ]
 
+    summary = (ai_summary or "").strip()
+    if summary:
+        if len(summary) > MAX_SUMMARY_CHARS_IN_CARD:
+            summary = summary[: MAX_SUMMARY_CHARS_IN_CARD - 1].rstrip() + "…"
+        lines.extend(["", f"🧠 {esc(summary)}"])
+
+    meta: list[str] = []
+    if categories:
+        meta.append(f"🏷 {esc(', '.join(categories))}")
+    if detected_cves:
+        meta.append(f"⚠️ {esc(_format_cve_list(detected_cves))}")
+    if meta:
+        lines.append("")
+        lines.extend(meta)
+
+    lines.extend(["", "📰 *Sources*"])
     if source_rows:
         for article_title, article_url, article_source in source_rows:
-            lines.append(f"\\- {esc(article_title)} \\({esc(article_source)}\\)")
+            lines.append(f"• {esc(article_title)} — {esc(article_source)}")
             if article_url.strip():
                 lines.append(f"  {esc(article_url)}")
     else:
-        lines.append(esc(", ".join(sources) if sources else "unknown"))
+        lines.append(f"• {esc(', '.join(sources) if sources else 'unknown')}")
 
     if related_rows or related_extra > 0:
-        lines.extend(["", "🔗 *Related:*"])
+        lines.extend(["", "🔗 *Related*"])
         for article_title, _, article_source in related_rows:
-            lines.append(f"\\- {esc(article_title)} \\({esc(article_source)}\\)")
+            lines.append(f"• {esc(article_title)} — {esc(article_source)}")
         if related_extra > 0:
-            lines.append(esc(f"... +{related_extra} more"))
+            lines.append(esc(f"+{related_extra} more"))
 
-    lines.extend(["", CARD_DIVIDER])
     return _truncate_to_telegram_limit("\n".join(lines))
 
 
-def _incident_summary_text(ai_summary: str, *, fallback: str) -> str:
-    """Return a non-empty, length-capped summary, never a placeholder."""
-    summary = (ai_summary or "").strip() or fallback.strip()
-    if len(summary) > MAX_SUMMARY_CHARS_IN_CARD:
-        summary = summary[: MAX_SUMMARY_CHARS_IN_CARD - 1].rstrip() + "…"
-    return summary
+def _severity_badge(severity: str) -> str:
+    """Return a colour emoji for the severity level."""
+    return _SEVERITY_BADGES.get(severity.strip().casefold(), "⚪")
 
 
 def _format_cve_list(cves: tuple[str, ...], *, limit: int = MAX_CVES_IN_CARD) -> str:

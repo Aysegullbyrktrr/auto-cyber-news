@@ -153,7 +153,7 @@ def test_format_telegram_incident_alert_lists_related_articles() -> None:
         ),
     )
 
-    assert "INCIDENT HIGH" in message
+    assert "🟠 *HIGH* · Risk 85/100" in message
     assert "Krebs" in message
     assert "Story A" in message
     assert "Story B" in message
