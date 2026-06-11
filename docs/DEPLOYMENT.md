@@ -45,7 +45,8 @@ chmod 600 .env       # restrict to your user
 Set in `.env`:
 ```ini
 TELEGRAM_BOT_TOKEN=...        # from @BotFather (rotate if it was ever shared)
-TELEGRAM_CHAT_ID=...
+TELEGRAM_CHAT_ID=...          # one ID, or several comma-separated (e.g. 111,222),
+                             # and/or a group/channel ID for broadcast
 GEMINI_API_KEY=...            # or ANTHROPIC_API_KEY; omit for rule-based summaries
 SUMMARY_LANGUAGE=Turkish      # optional
 ALERTS_DRY_RUN=false          # true = process but don't send (use for a first dry run)

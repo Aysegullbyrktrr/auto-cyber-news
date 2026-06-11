@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from dataclasses import dataclass
 
 import aiohttp
@@ -40,18 +41,23 @@ class TelegramSettings:
     """Telegram bot credentials loaded from the environment."""
 
     bot_token: str
-    chat_id: str
+    chat_ids: tuple[str, ...]
 
 
 def load_telegram_settings() -> TelegramSettings:
     """Load Telegram credentials from environment variables."""
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    chat_ids = _parse_chat_ids(os.getenv("TELEGRAM_CHAT_ID", ""))
     if not bot_token:
         raise TelegramConfigurationError("TELEGRAM_BOT_TOKEN is not configured.")
-    if not chat_id:
+    if not chat_ids:
         raise TelegramConfigurationError("TELEGRAM_CHAT_ID is not configured.")
-    return TelegramSettings(bot_token=bot_token, chat_id=chat_id)
+    return TelegramSettings(bot_token=bot_token, chat_ids=chat_ids)
+
+
+def _parse_chat_ids(raw: str) -> tuple[str, ...]:
+    """Parse one or more chat IDs separated by commas, spaces, or newlines."""
+    return tuple(part for part in re.split(r"[,\s]+", raw.strip()) if part)
 
 
 def is_telegram_configured() -> bool:
@@ -87,17 +93,36 @@ class TelegramNotifier:
         parse_mode: str = "MarkdownV2",
         disable_web_page_preview: bool = False,
     ) -> None:
-        """Send a Telegram message."""
+        """Send a Telegram message to every configured chat.
+
+        Each recipient is delivered independently, so one failing chat (e.g. a
+        user who blocked the bot) does not prevent delivery to the others. Raises
+        only if no recipient could be reached.
+        """
         safe_message = message if parse_mode else escape_telegram_markdown(message)
         url = f"https://api.telegram.org/bot{self._settings.bot_token}/sendMessage"
-        payload = {
-            "chat_id": self._settings.chat_id,
-            "text": safe_message,
-            "disable_web_page_preview": disable_web_page_preview,
-        }
-        if parse_mode:
-            payload["parse_mode"] = parse_mode
 
+        delivered = 0
+        last_error: RuntimeError | None = None
+        for chat_id in self._settings.chat_ids:
+            payload: dict[str, object] = {
+                "chat_id": chat_id,
+                "text": safe_message,
+                "disable_web_page_preview": disable_web_page_preview,
+            }
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
+            try:
+                await self._send_with_retries(url, payload)
+                delivered += 1
+            except TelegramApiError as exc:
+                last_error = exc
+
+        if delivered == 0 and last_error is not None:
+            raise last_error
+
+    async def _send_with_retries(self, url: str, payload: dict[str, object]) -> None:
+        """Deliver one payload with retry/backoff; raise on terminal failure."""
         last_error: RuntimeError | None = None
         for attempt in range(MAX_SEND_ATTEMPTS):
             try:

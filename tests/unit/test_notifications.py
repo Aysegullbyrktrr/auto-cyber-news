@@ -18,6 +18,8 @@ from auto_cyber_news.notifications.telegram import (
     MAX_RETRY_DELAY_SECONDS,
     TelegramApiError,
     TelegramNotifier,
+    TelegramSettings,
+    _parse_chat_ids,
     _parse_retry_after,
 )
 from auto_cyber_news.notifications.telegram import escape_telegram_markdown as telegram_escape
@@ -159,6 +161,45 @@ def test_incident_card_respects_telegram_length_limit() -> None:
     )
 
     assert len(message) <= TELEGRAM_MAX_CHARS
+
+
+def test_parse_chat_ids_splits_on_separators() -> None:
+    """One or more chat IDs may be given, separated by commas/spaces/newlines."""
+    assert _parse_chat_ids("111, 222  333\n444") == ("111", "222", "333", "444")
+    assert _parse_chat_ids("  555  ") == ("555",)
+    assert _parse_chat_ids("   ") == ()
+
+
+async def test_telegram_sends_to_every_chat_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A message is delivered independently to each configured chat ID."""
+    notifier = TelegramNotifier(TelegramSettings(bot_token="t", chat_ids=("111", "222")))
+    sent: list[str] = []
+
+    async def fake_post(url: str, payload: dict[str, object]) -> None:
+        sent.append(str(payload["chat_id"]))
+
+    monkeypatch.setattr(notifier, "_post_message", fake_post)
+    await notifier.send_message("hello", parse_mode="")
+
+    assert sent == ["111", "222"]
+
+
+async def test_telegram_one_failed_chat_does_not_block_others(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A permanent failure for one recipient still delivers to the rest."""
+    notifier = TelegramNotifier(TelegramSettings(bot_token="t", chat_ids=("111", "222")))
+    delivered: list[str] = []
+
+    async def fake_post(url: str, payload: dict[str, object]) -> None:
+        if payload["chat_id"] == "111":
+            raise TelegramApiError("blocked", status=403)
+        delivered.append(str(payload["chat_id"]))
+
+    monkeypatch.setattr(notifier, "_post_message", fake_post)
+    await notifier.send_message("hello", parse_mode="")
+
+    assert delivered == ["222"]
 
 
 def test_parse_retry_after_reads_header_and_body() -> None:
