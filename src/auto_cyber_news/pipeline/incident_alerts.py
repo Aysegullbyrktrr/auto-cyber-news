@@ -85,6 +85,7 @@ async def dispatch_telegram_incident_alerts(
                 detected_cves=incident.detected_cves,
                 related_articles=_related_article_rows(incident),
                 ai_summary=incident.articles[0].ai_summary,
+                detected_at=utc_now(),
                 max_related_articles=MAX_RELATED_ARTICLES_IN_ALERT,
             )
             await notifier.send_message(message)

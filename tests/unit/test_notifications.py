@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC
 
 import pytest
 
@@ -87,6 +88,20 @@ def test_incident_card_has_clean_sections_without_dividers() -> None:
     assert "🏷 " in message  # categories
     assert "⚠️ " in message  # CVEs
     assert "📰 *Sources*" in message
+
+
+def test_incident_card_renders_detected_at_timestamp() -> None:
+    """A provided detection time appears as a UTC timestamp under the header."""
+    from datetime import datetime
+
+    message = _incident_card(detected_at=datetime(2026, 6, 11, 11, 30, tzinfo=UTC))
+
+    assert "🕐 2026\\-06\\-11 11:30 UTC" in message
+
+
+def test_incident_card_omits_timestamp_when_absent() -> None:
+    """Without a detection time, no clock line is rendered."""
+    assert "🕐" not in _incident_card()
 
 
 def test_incident_card_omits_summary_when_ai_missing() -> None:

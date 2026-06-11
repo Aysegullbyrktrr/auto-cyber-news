@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime
 from html import escape
 
 TELEGRAM_MAX_CHARS = 3500
@@ -59,6 +60,7 @@ def format_telegram_incident_alert(
     detected_cves: tuple[str, ...],
     related_articles: tuple[tuple[str, str, str], ...],
     ai_summary: str = "",
+    detected_at: datetime | None = None,
     max_related_articles: int = MAX_SOURCES_IN_CARD,
 ) -> str:
     """Build a compact SOC-style incident card for Telegram (MarkdownV2).
@@ -76,11 +78,10 @@ def format_telegram_incident_alert(
     related_rows = overflow[:MAX_RELATED_IN_CARD]
     related_extra = len(overflow) - len(related_rows)
 
-    lines = [
-        f"{_severity_badge(severity)} *{esc(severity.upper())}* · Risk {risk_score}/100",
-        "",
-        f"*{esc(title)}*",
-    ]
+    lines = [f"{_severity_badge(severity)} *{esc(severity.upper())}* · Risk {risk_score}/100"]
+    if detected_at is not None:
+        lines.append(f"🕐 {esc(detected_at.strftime('%Y-%m-%d %H:%M'))} UTC")
+    lines.extend(["", f"*{esc(title)}*"])
 
     summary = (ai_summary or "").strip()
     if summary:
