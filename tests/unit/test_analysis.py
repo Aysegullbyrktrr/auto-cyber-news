@@ -15,7 +15,11 @@ from auto_cyber_news.analysis.decision import (
 )
 from auto_cyber_news.analysis.enrich import enrich_article
 from auto_cyber_news.analysis.summarize import (
+    GEMINI_CIRCUIT_THRESHOLD,
     _extract_gemini_text,
+    _gemini_circuit_open,
+    _gemini_record_failure,
+    _gemini_record_success,
     _gemini_retry_delay,
     _parse_gemini_retry_delay,
     summarize_article,
@@ -63,6 +67,17 @@ def test_gemini_retry_delay_honors_api_hint_and_caps() -> None:
 
     assert _parse_gemini_retry_delay("not json") is None
     assert _gemini_retry_delay("not json", 2) == 4.0
+
+
+def test_gemini_circuit_breaker_opens_after_repeated_failures() -> None:
+    """Repeated quota failures open the circuit; a success closes it."""
+    _gemini_record_success()
+    assert _gemini_circuit_open() is False
+    for _ in range(GEMINI_CIRCUIT_THRESHOLD):
+        _gemini_record_failure()
+    assert _gemini_circuit_open() is True
+    _gemini_record_success()  # reset shared state for other tests
+    assert _gemini_circuit_open() is False
 
 
 def test_extract_cvss_score_picks_base_score() -> None:

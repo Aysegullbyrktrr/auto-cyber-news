@@ -16,6 +16,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from collections.abc import Awaitable, Callable, Mapping
 
 import aiohttp
@@ -33,6 +34,14 @@ GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 # times, honouring the API's suggested retryDelay (capped) before giving up.
 GEMINI_MAX_ATTEMPTS = 3
 GEMINI_MAX_RETRY_DELAY_SECONDS = 30.0
+# Cold-start circuit breaker: when the free-tier quota is exhausted, a burst of
+# articles would otherwise retry-and-wait on every 429. After a few quota
+# failures we open the circuit and fall straight back to rule-based summaries
+# for a cooldown window, then probe Gemini again.
+GEMINI_CIRCUIT_THRESHOLD = 3
+GEMINI_CIRCUIT_COOLDOWN_SECONDS = 600.0
+_gemini_fail_streak = 0
+_gemini_circuit_open_until = 0.0
 
 # Claude Haiku is the cheap/fast Anthropic tier (used only when GEMINI_API_KEY
 # is absent and ANTHROPIC_API_KEY is set).
@@ -82,6 +91,8 @@ async def summarize_article(article: NormalizedArticle) -> str:
         return fallback_summary
 
     summarizer, provider_name = provider
+    if provider_name == "gemini" and _gemini_circuit_open():
+        return fallback_summary
     try:
         ai_summary = await summarizer(article)
     except Exception as exc:
@@ -141,13 +152,38 @@ async def _summarize_with_gemini(article: NormalizedArticle) -> str:
     for attempt in range(GEMINI_MAX_ATTEMPTS):
         status, body = await _gemini_post(url, payload, headers)
         if status < 400:
+            _gemini_record_success()
             return _extract_gemini_text(_loads_json(body))
         last_error = RuntimeError(f"Gemini summarization failed ({status}): {body[:300]}")
-        if status == 429 and attempt < GEMINI_MAX_ATTEMPTS - 1:
-            await asyncio.sleep(_gemini_retry_delay(body, attempt))
-            continue
+        if status == 429:
+            if attempt < GEMINI_MAX_ATTEMPTS - 1 and not _gemini_circuit_open():
+                await asyncio.sleep(_gemini_retry_delay(body, attempt))
+                continue
+            _gemini_record_failure()
         raise last_error
     raise last_error
+
+
+def _gemini_circuit_open() -> bool:
+    """Whether Gemini is temporarily disabled after repeated quota failures."""
+    return time.monotonic() < _gemini_circuit_open_until
+
+
+def _gemini_record_success() -> None:
+    global _gemini_fail_streak, _gemini_circuit_open_until
+    _gemini_fail_streak = 0
+    _gemini_circuit_open_until = 0.0
+
+
+def _gemini_record_failure() -> None:
+    global _gemini_fail_streak, _gemini_circuit_open_until
+    _gemini_fail_streak += 1
+    if _gemini_fail_streak >= GEMINI_CIRCUIT_THRESHOLD and not _gemini_circuit_open():
+        _gemini_circuit_open_until = time.monotonic() + GEMINI_CIRCUIT_COOLDOWN_SECONDS
+        LOGGER.warning(
+            "Gemini quota exhausted; pausing AI summaries (rule-based fallback)",
+            extra={"cooldown_seconds": GEMINI_CIRCUIT_COOLDOWN_SECONDS},
+        )
 
 
 async def _gemini_post(
