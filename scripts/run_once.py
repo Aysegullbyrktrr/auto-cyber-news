@@ -1,17 +1,16 @@
-"""Run one ingestion cycle through the package pipeline."""
+"""Run one ingestion and analysis cycle through the package CLI."""
 
 from __future__ import annotations
 
-import asyncio
+import sys
 
-from auto_cyber_news.pipeline.ingest import run_ingestion
+from auto_cyber_news.cli import main
 
 
-def main() -> None:
-    """Execute one ingestion cycle."""
-    asyncio.run(run_ingestion())
+def run() -> int:
+    """Execute one ingestion and analysis cycle via the CLI entry point."""
+    return main(["run-once"])
 
 
 if __name__ == "__main__":
-    main()
-
+    sys.exit(run())

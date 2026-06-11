@@ -73,6 +73,7 @@ class CategoryConfig:
     id: str
     name: str
     keywords: tuple[str, ...]
+    exclude_keywords: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

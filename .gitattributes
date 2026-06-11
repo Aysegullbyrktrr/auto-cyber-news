@@ -1,0 +1,8 @@
+# Normalize line endings: LF in the repo (Linux-friendly), so Dockerfiles,
+# YAML, shell, and Python check out correctly on the server.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf

@@ -82,7 +82,10 @@ def _extract_primary_content(entry: Any) -> str | None:
     """Extract full entry content when provided by the feed."""
     content = entry.get("content")
     if isinstance(content, list) and content:
-        value = content[0].get("value")
+        first_content = content[0]
+        if not hasattr(first_content, "get"):
+            return None
+        value = first_content.get("value")
         return _clean_text(value)
     return None
 

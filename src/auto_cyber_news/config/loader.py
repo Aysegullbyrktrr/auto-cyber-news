@@ -101,26 +101,34 @@ def _build_config(
     severity_data: Mapping[str, Any],
 ) -> Config:
     """Build a typed configuration object from raw mappings."""
-    app_section = _required_mapping(app_data, "app")
-    database_section = _required_mapping(app_data, "database")
-    http_section = _required_mapping(app_data, "http")
-    digest_section = _required_mapping(app_data, "digest")
-    alerts_section = _required_mapping(app_data, "alerts")
-    source_items = _required_list(source_data, "sources")
+    app_section = _optional_mapping(app_data, "app")
+    database_section = _optional_mapping(app_data, "database")
+    http_section = _optional_mapping(app_data, "http")
+    digest_section = _optional_mapping(app_data, "digest")
+    alerts_section = _optional_mapping(app_data, "alerts")
+    source_items = _optional_list(source_data, "sources")
     environment = os.getenv(
         "APP_ENV",
-        _as_str(app_section.get("environment"), "app.environment"),
+        _as_str(app_section.get("environment", "development"), "app.environment"),
     )
     production = _is_production_environment(environment)
 
     return Config(
-        name=_as_str(app_section.get("name"), "app.name"),
+        name=_as_str(app_section.get("name", "auto-cyber-news"), "app.name"),
         environment=environment,
-        timezone=os.getenv("DIGEST_TIMEZONE", _as_str(app_section.get("timezone"), "app.timezone")),
+        timezone=os.getenv(
+            "DIGEST_TIMEZONE",
+            _as_str(app_section.get("timezone", "UTC"), "app.timezone"),
+        ),
         config_dir=config_dir,
         database=DatabaseConfig(
             sqlite_path=Path(
-                str(os.getenv("SQLITE_PATH", database_section.get("sqlite_path", ""))),
+                str(
+                    os.getenv(
+                        "SQLITE_PATH",
+                        database_section.get("sqlite_path", "data/auto-cyber-news.db"),
+                    ),
+                ),
             ),
         ),
         logging=LoggingConfig(
@@ -130,19 +138,31 @@ def _build_config(
             file_path=Path(os.getenv("LOG_FILE_PATH", "logs/app.log")),
         ),
         http=HttpConfig(
-            timeout_seconds=_as_int(http_section.get("timeout_seconds"), "http.timeout_seconds"),
-            total_retries=_as_int(http_section.get("total_retries"), "http.total_retries"),
-            user_agent=_as_str(http_section.get("user_agent"), "http.user_agent"),
-            max_concurrency=_as_int(http_section.get("max_concurrency"), "http.max_concurrency"),
+            timeout_seconds=_as_int(
+                http_section.get("timeout_seconds", 20),
+                "http.timeout_seconds",
+            ),
+            total_retries=_as_int(http_section.get("total_retries", 2), "http.total_retries"),
+            user_agent=_as_str(
+                http_section.get("user_agent", "auto-cyber-news/0.1.0"),
+                "http.user_agent",
+            ),
+            max_concurrency=_as_int(
+                http_section.get("max_concurrency", 8),
+                "http.max_concurrency",
+            ),
         ),
         digest=DigestConfig(
-            window_hours=_as_int(digest_section.get("window_hours"), "digest.window_hours"),
-            max_articles=_as_int(digest_section.get("max_articles"), "digest.max_articles"),
-            subject_prefix=_as_str(digest_section.get("subject_prefix"), "digest.subject_prefix"),
+            window_hours=_as_int(digest_section.get("window_hours", 24), "digest.window_hours"),
+            max_articles=_as_int(digest_section.get("max_articles", 50), "digest.max_articles"),
+            subject_prefix=_as_str(
+                digest_section.get("subject_prefix", "Cybersecurity Daily Digest"),
+                "digest.subject_prefix",
+            ),
         ),
         alerts=AlertConfig(
             critical_freshness_minutes=_as_int(
-                alerts_section.get("critical_freshness_minutes"),
+                alerts_section.get("critical_freshness_minutes", 180),
                 "alerts.critical_freshness_minutes",
             ),
             dry_run=_resolve_dry_run(alerts_section, production),
@@ -211,10 +231,17 @@ def _build_category(raw_category: object, index: int) -> CategoryConfig:
     keywords = raw_category.get("keywords", [])
     if not isinstance(keywords, list):
         raise ConfigError(f"categories[{index}].keywords must be a list")
+    exclude_keywords = raw_category.get("exclude_keywords", [])
+    if not isinstance(exclude_keywords, list):
+        raise ConfigError(f"categories[{index}].exclude_keywords must be a list")
     return CategoryConfig(
         id=_as_str(raw_category.get("id"), f"categories[{index}].id"),
         name=_as_str(raw_category.get("name"), f"categories[{index}].name"),
         keywords=tuple(_as_str(keyword, f"categories[{index}].keywords") for keyword in keywords),
+        exclude_keywords=tuple(
+            _as_str(keyword, f"categories[{index}].exclude_keywords")
+            for keyword in exclude_keywords
+        ),
     )
 
 
@@ -267,11 +294,27 @@ def _required_mapping(data: Mapping[str, Any], key: str) -> Mapping[str, Any]:
     return value
 
 
+def _optional_mapping(data: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    """Return a nested mapping or an empty mapping when absent."""
+    value = data.get(key, {})
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"Invalid mapping: {key}")
+    return value
+
+
 def _required_list(data: Mapping[str, Any], key: str) -> list[Any]:
     """Return a required list from raw configuration."""
     value = data.get(key)
     if not isinstance(value, list):
         raise ConfigError(f"Missing or invalid list: {key}")
+    return value
+
+
+def _optional_list(data: Mapping[str, Any], key: str) -> list[Any]:
+    """Return a nested list or an empty list when absent."""
+    value = data.get(key, [])
+    if not isinstance(value, list):
+        raise ConfigError(f"Invalid list: {key}")
     return value
 
 
@@ -352,7 +395,7 @@ def _resolve_dry_run(alerts_section: Mapping[str, Any], production: bool) -> boo
     dry_run_env = os.getenv("ALERTS_DRY_RUN")
     if dry_run_env is not None:
         return _as_bool(dry_run_env, "ALERTS_DRY_RUN")
-    default_value = False if production else True
+    default_value = not production
     return _as_bool(alerts_section.get("dry_run", default_value), "alerts.dry_run")
 
 

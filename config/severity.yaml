@@ -9,10 +9,9 @@ severity:
     telegram_alert_min_level: critical
     email_digest_min_level: medium
   rules:
-    - id: active_exploitation
-      description: Active exploitation language in article title or summary.
-      weight: 35
-      terms: ["actively exploited", "in the wild", "mass exploitation"]
+    # NOTE: active-exploitation scoring is handled by the built-in detector
+    # (keyword:exploit-in-the-wild, +35) to avoid double-counting the same
+    # phrases here. Keep config rules for signals the engine does not hardcode.
     - id: ransomware
       description: Ransomware impact or campaign language.
       weight: 25

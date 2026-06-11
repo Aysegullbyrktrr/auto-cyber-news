@@ -19,18 +19,16 @@ def test_run_migrations_applies_and_skips_idempotently(tmp_path: Path) -> None:
     second_result = run_migrations(sqlite_path)
     applied_records = get_applied_migrations(sqlite_path)
 
-    assert first_result.applied == (
+    expected_migrations = (
         "001_bootstrap.sql",
         "002_phase2_core.sql",
         "003_incidents.sql",
+        "004_processed_articles.sql",
     )
+    assert first_result.applied == expected_migrations
     assert first_result.skipped == ()
     assert second_result.applied == ()
-    assert second_result.skipped == (
-        "001_bootstrap.sql",
-        "002_phase2_core.sql",
-        "003_incidents.sql",
-    )
+    assert second_result.skipped == expected_migrations
     assert tuple(record.version for record in applied_records) == first_result.applied
 
 
@@ -45,7 +43,7 @@ def test_get_table_counts_reports_phase2_tables(tmp_path: Path) -> None:
     )
 
     assert counts == {
-        "schema_migrations": 3,
+        "schema_migrations": 4,
         "news": 0,
         "sent_digest": 0,
         "metadata": 0,

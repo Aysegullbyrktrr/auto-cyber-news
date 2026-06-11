@@ -93,6 +93,18 @@ class IncidentRepository:
         ).fetchone()
         return int(row["count"]) > 0
 
+    def prune_alerts_older_than(self, cutoff_iso: str) -> int:
+        """Delete incident alert rows older than the cutoff to bound table growth.
+
+        The cutoff is far larger than the alert cooldown window, so suppression
+        decisions are unaffected.
+        """
+        cursor = self._connection.execute(
+            "DELETE FROM incident_alerts WHERE alerted_at < ?",
+            (cutoff_iso,),
+        )
+        return max(0, cursor.rowcount)
+
     def record_alert(
         self,
         incident: SecurityIncident,

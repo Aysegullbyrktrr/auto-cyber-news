@@ -1,0 +1,36 @@
+# Keep the Docker build context small and free of host-specific cruft.
+.venv/
+venv/
+.git/
+.github/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Runtime data and secrets must never enter the image (mounted/configured instead).
+data/
+logs/
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Tooling that the image does not need
+Makefile
+make.ps1
+tests/
+docs/

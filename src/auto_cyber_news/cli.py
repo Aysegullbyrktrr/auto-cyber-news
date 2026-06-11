@@ -5,18 +5,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import sqlite3
 import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
-from auto_cyber_news.analysis.enrich import enrich_articles
+from auto_cyber_news.analysis.enrich import enrich_articles_async
 from auto_cyber_news.config.loader import ConfigError, load_config
 from auto_cyber_news.config.models import Config
 from auto_cyber_news.config.validation import ConfigValidationError
 from auto_cyber_news.db.migrations import get_applied_migrations, get_table_counts, run_migrations
+from auto_cyber_news.health import run_health_check
 from auto_cyber_news.logging import configure_logging, correlation_context, get_logger
 from auto_cyber_news.models.article import NormalizedArticle
 from auto_cyber_news.notifications.email import (
@@ -26,7 +26,6 @@ from auto_cyber_news.notifications.email import (
 )
 from auto_cyber_news.notifications.telegram import TelegramConfigurationError, TelegramNotifier
 from auto_cyber_news.pipeline.ingest import run_ingestion
-from auto_cyber_news.health import run_health_check
 from auto_cyber_news.scheduler.runner import run_cycle, run_scheduler
 
 LOGGER = get_logger(__name__)
@@ -117,9 +116,9 @@ def _validate_config(config_dir: Path) -> int:
                 },
             )
             return 0
-        except (ConfigError, ConfigValidationError, ValueError) as exc:
+        except Exception as exc:
             configure_logging("ERROR", "json")
-            LOGGER.error("Configuration validation failed", extra={"error": str(exc)})
+            LOGGER.exception("Configuration validation failed", extra={"error": str(exc)})
             return 1
 
 
@@ -139,15 +138,9 @@ def _migrate(config_dir: Path, *, command_name: str) -> int:
                 },
             )
             return 0
-        except (
-            ConfigError,
-            ConfigValidationError,
-            OSError,
-            sqlite3.DatabaseError,
-            ValueError,
-        ) as exc:
+        except Exception as exc:
             configure_logging("ERROR", "json")
-            LOGGER.error("Database migration failed", extra={"error": str(exc)})
+            LOGGER.exception("Database migration failed", extra={"error": str(exc)})
             return 1
 
 
@@ -167,6 +160,7 @@ def _db_status(config_dir: Path) -> int:
                     "metadata",
                     "incidents",
                     "incident_alerts",
+                    "processed_articles",
                 ),
             )
             LOGGER.info(
@@ -181,15 +175,9 @@ def _db_status(config_dir: Path) -> int:
                 },
             )
             return 0
-        except (
-            ConfigError,
-            ConfigValidationError,
-            OSError,
-            sqlite3.DatabaseError,
-            ValueError,
-        ) as exc:
+        except Exception as exc:
             configure_logging("ERROR", "json")
-            LOGGER.error("Database status failed", extra={"error": str(exc)})
+            LOGGER.exception("Database status failed", extra={"error": str(exc)})
             return 1
 
 
@@ -228,9 +216,9 @@ def _run_ingestion_cli(config_dir: Path) -> int:
             sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2))
             sys.stdout.write("\n")
             return 0
-        except (ConfigError, ConfigValidationError, ValueError) as exc:
-            configure_logging("ERROR", "json")
-            LOGGER.error("Ingestion failed", extra={"error": str(exc)})
+        except Exception as exc:
+            configure_logging("ERROR", "json", stream=sys.stderr)
+            LOGGER.exception("Ingestion failed", extra={"error": str(exc)})
             return 1
 
 
@@ -245,7 +233,7 @@ def _run_analysis_cli(config_dir: Path, *, input_path: str | None) -> int:
                 articles = ingestion_result.articles
             else:
                 articles = _load_normalized_articles(Path(input_path))
-            enriched_articles = enrich_articles(articles, config)
+            enriched_articles = asyncio.run(enrich_articles_async(articles, config))
             payload = {
                 "article_count": len(enriched_articles),
                 "articles": [article.to_dict() for article in enriched_articles],
@@ -253,9 +241,9 @@ def _run_analysis_cli(config_dir: Path, *, input_path: str | None) -> int:
             sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2))
             sys.stdout.write("\n")
             return 0
-        except (ConfigError, ConfigValidationError, OSError, ValueError, KeyError) as exc:
+        except Exception as exc:
             configure_logging("ERROR", "json", stream=sys.stderr)
-            LOGGER.error("Analysis failed", extra={"error": str(exc)})
+            LOGGER.exception("Analysis failed", extra={"error": str(exc)})
             return 1
 
 
@@ -302,9 +290,9 @@ def _run_once_cli(config_dir: Path) -> int:
             config = _load_configured_logging(config_dir, log_stream=sys.stderr)
             asyncio.run(run_cycle(config))
             return 0
-        except (ConfigError, ConfigValidationError, ValueError) as exc:
+        except Exception as exc:
             configure_logging("ERROR", "json", stream=sys.stderr)
-            LOGGER.error("Run-once cycle failed", extra={"error": str(exc)})
+            LOGGER.exception("Run-once cycle failed", extra={"error": str(exc)})
             return 1
 
 
@@ -313,12 +301,12 @@ def _run_scheduler_cli(config_dir: Path) -> int:
     correlation_id = f"run-scheduler-{uuid.uuid4()}"
     with correlation_context(correlation_id):
         try:
-            config = _load_configured_logging(config_dir, log_stream=sys.stdout)
+            config = _load_configured_logging(config_dir, log_stream=sys.stderr)
             asyncio.run(run_scheduler(config))
             return 0
-        except (ConfigError, ConfigValidationError, ValueError) as exc:
-            configure_logging("ERROR", "json", stream=sys.stdout)
-            LOGGER.error("Scheduler failed", extra={"error": str(exc)})
+        except Exception as exc:
+            configure_logging("ERROR", "json", stream=sys.stderr)
+            LOGGER.exception("Scheduler failed", extra={"error": str(exc)})
             return 1
 
 
@@ -406,7 +394,9 @@ def _send_digest_cli(config_dir: Path) -> int:
         try:
             config = _load_configured_logging(config_dir, log_stream=sys.stderr)
             ingestion_result = asyncio.run(run_ingestion(config))
-            enriched_articles = enrich_articles(ingestion_result.articles, config)
+            enriched_articles = asyncio.run(
+                enrich_articles_async(ingestion_result.articles, config),
+            )
             digest_articles = tuple(
                 article for article in enriched_articles if article.should_include_in_email_digest
             )
@@ -421,7 +411,7 @@ def _send_digest_cli(config_dir: Path) -> int:
                 return 0
 
             notifier = EmailNotifier.from_env()
-            digest_date = datetime.now(timezone.utc).date().isoformat()
+            digest_date = datetime.now(timezone.utc).date().isoformat()  # noqa: UP017
             payloads = tuple(
                 DigestArticlePayload(
                     title=article.article.title,
@@ -430,6 +420,7 @@ def _send_digest_cli(config_dir: Path) -> int:
                     risk_score=article.risk_score,
                     categories=article.categories,
                     detected_cves=article.detected_cves,
+                    ai_summary=article.ai_summary,
                 )
                 for article in sorted(
                     digest_articles,

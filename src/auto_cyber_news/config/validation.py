@@ -47,9 +47,6 @@ def validate_config(config: Config) -> None:
     )
     _validate_thresholds(config, errors)
 
-    if not config.sources:
-        errors.append("sources must contain at least one source")
-
     seen_source_ids: set[str] = set()
     for source in config.sources:
         if source.id in seen_source_ids:

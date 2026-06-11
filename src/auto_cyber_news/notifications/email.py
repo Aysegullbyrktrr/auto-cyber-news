@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import smtplib
+import ssl
 from dataclasses import dataclass
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -29,6 +30,7 @@ class EmailSettings:
     smtp_port: int
     smtp_user: str
     smtp_pass: str
+    email_from: str
     email_to: str
 
 
@@ -42,22 +44,38 @@ class DigestArticlePayload:
     risk_score: int
     categories: tuple[str, ...]
     detected_cves: tuple[str, ...]
+    ai_summary: str = ""
+
+
+def _env_first(*names: str) -> str:
+    """Return the first non-empty environment value among ``names``."""
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
 
 
 def load_email_settings() -> EmailSettings:
-    """Load SMTP credentials from environment variables."""
+    """Load SMTP credentials from environment variables.
+
+    Canonical names are ``SMTP_USERNAME``/``SMTP_PASSWORD`` (matching
+    ``.env.example`` and the architecture docs); the legacy ``SMTP_USER``/
+    ``SMTP_PASS`` names are accepted as fallbacks for backwards compatibility.
+    """
     smtp_host = os.getenv("SMTP_HOST", "").strip()
     smtp_port_raw = os.getenv("SMTP_PORT", "587").strip()
-    smtp_user = os.getenv("SMTP_USER", "").strip()
-    smtp_pass = os.getenv("SMTP_PASS", "").strip()
+    smtp_user = _env_first("SMTP_USERNAME", "SMTP_USER")
+    smtp_pass = _env_first("SMTP_PASSWORD", "SMTP_PASS")
     email_to = os.getenv("EMAIL_TO", "").strip()
+    email_from = os.getenv("EMAIL_FROM", "").strip() or smtp_user
 
     if not smtp_host:
         raise EmailConfigurationError("SMTP_HOST is not configured.")
     if not smtp_user:
-        raise EmailConfigurationError("SMTP_USER is not configured.")
+        raise EmailConfigurationError("SMTP_USERNAME is not configured.")
     if not smtp_pass:
-        raise EmailConfigurationError("SMTP_PASS is not configured.")
+        raise EmailConfigurationError("SMTP_PASSWORD is not configured.")
     if not email_to:
         raise EmailConfigurationError("EMAIL_TO is not configured.")
 
@@ -71,14 +89,20 @@ def load_email_settings() -> EmailSettings:
         smtp_port=smtp_port,
         smtp_user=smtp_user,
         smtp_pass=smtp_pass,
+        email_from=email_from,
         email_to=email_to,
     )
 
 
 def is_email_configured() -> bool:
     """Return whether SMTP credentials are present."""
-    required = ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "EMAIL_TO")
-    return all(os.getenv(name, "").strip() for name in required)
+    if not os.getenv("SMTP_HOST", "").strip():
+        return False
+    if not _env_first("SMTP_USERNAME", "SMTP_USER"):
+        return False
+    if not _env_first("SMTP_PASSWORD", "SMTP_PASS"):
+        return False
+    return bool(os.getenv("EMAIL_TO", "").strip())
 
 
 class EmailNotifier:
@@ -92,6 +116,11 @@ class EmailNotifier:
     def from_env(cls) -> EmailNotifier:
         """Create a notifier using environment credentials."""
         return cls(load_email_settings())
+
+    @property
+    def recipient(self) -> str:
+        """Return the configured digest recipient address."""
+        return self._settings.email_to
 
     async def send_html(self, subject: str, html: str) -> None:
         """Send an HTML email using SMTP in a worker thread."""
@@ -130,15 +159,16 @@ class EmailNotifier:
     def _send_html_sync(self, subject: str, html: str) -> None:
         message = MIMEMultipart("alternative")
         message["Subject"] = subject
-        message["From"] = self._settings.smtp_user
+        message["From"] = self._settings.email_from
         message["To"] = self._settings.email_to
         message.attach(MIMEText(html, "html", "utf-8"))
 
+        context = ssl.create_default_context()
         with smtplib.SMTP(self._settings.smtp_host, self._settings.smtp_port, timeout=30) as client:
-            client.starttls()
+            client.starttls(context=context)
             client.login(self._settings.smtp_user, self._settings.smtp_pass)
             client.sendmail(
-                self._settings.smtp_user,
+                self._settings.email_from,
                 [self._settings.email_to],
                 message.as_string(),
             )

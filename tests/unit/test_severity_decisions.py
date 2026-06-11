@@ -76,6 +76,58 @@ def test_decision_layer_considers_cves_and_urgent_categories() -> None:
     assert should_include_in_email_digest(enriched, decisions) is True
 
 
+def test_telegram_does_not_alert_on_low_score_urgent_category() -> None:
+    """A bare urgent category on a low-risk story must NOT page (no alert fatigue)."""
+    enriched = _enriched(
+        severity=SeverityLevel.LOW,
+        risk_score=20,
+        categories=("supply_chain",),
+        detected_cves=(),
+        reasons=("category:supply_chain(+14)", "final_score:20"),
+    )
+
+    assert should_alert_telegram(enriched, DecisionConfig("critical", "high")) is False
+
+
+def test_telegram_alerts_on_high_risk_urgent_category() -> None:
+    """An urgent category riding a high-risk score should page."""
+    enriched = _enriched(
+        severity=SeverityLevel.HIGH,
+        risk_score=65,
+        categories=("supply_chain",),
+        detected_cves=(),
+        reasons=("category:supply_chain(+14)", "final_score:65"),
+    )
+
+    assert should_alert_telegram(enriched, DecisionConfig("critical", "high")) is True
+
+
+def test_telegram_always_alerts_on_active_exploitation() -> None:
+    """Active in-the-wild exploitation is an act-now signal regardless of score."""
+    enriched = _enriched(
+        severity=SeverityLevel.MEDIUM,
+        risk_score=45,
+        categories=("vulnerability",),
+        detected_cves=(),
+        reasons=("keyword:exploit-in-the-wild(+35)", "final_score:45"),
+    )
+
+    assert should_alert_telegram(enriched, DecisionConfig("critical", "high")) is True
+
+
+def test_telegram_does_not_alert_on_bare_cve_low_score() -> None:
+    """A CVE mentioned on an otherwise low-risk story must NOT page."""
+    enriched = _enriched(
+        severity=SeverityLevel.LOW,
+        risk_score=25,
+        categories=(),
+        detected_cves=("CVE-2026-0001",),
+        reasons=("detected_cves:1(+15)", "final_score:25"),
+    )
+
+    assert should_alert_telegram(enriched, DecisionConfig("critical", "high")) is False
+
+
 def _article(title: str, raw_content: str) -> NormalizedArticle:
     return NormalizedArticle(
         title=title,
@@ -123,6 +175,7 @@ def _enriched(
         detected_cves=detected_cves,
         categories=categories,
         risk_score=risk_score,
+        ai_summary="Test summary",
         is_critical=severity is SeverityLevel.CRITICAL,
         should_alert_telegram=False,
         should_include_in_email_digest=False,

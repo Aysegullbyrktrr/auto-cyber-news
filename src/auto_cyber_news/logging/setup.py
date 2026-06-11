@@ -58,10 +58,10 @@ def configure_logging(
             "%(asctime)s %(levelname)s %(name)s correlation_id=%(correlation_id)s %(message)s",
         )
 
-    stdout_handler = logging.StreamHandler(stream or sys.stdout)
-    stdout_handler.setFormatter(formatter)
-    stdout_handler.addFilter(_CorrelationIdFilter())
-    root_logger.addHandler(stdout_handler)
+    stream_handler = logging.StreamHandler(stream or sys.stderr)
+    stream_handler.setFormatter(formatter)
+    stream_handler.addFilter(_CorrelationIdFilter())
+    root_logger.addHandler(stream_handler)
 
     if file_enabled:
         _attach_file_handler(root_logger, formatter, file_path)

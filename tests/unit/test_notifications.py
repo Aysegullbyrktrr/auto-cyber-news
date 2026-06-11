@@ -2,11 +2,36 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
+from auto_cyber_news.notifications.email import load_email_settings
 from auto_cyber_news.notifications.formatting import (
+    CARD_DIVIDER,
+    TELEGRAM_MAX_CHARS,
     escape_telegram_markdown,
     format_telegram_alert,
+    format_telegram_incident_alert,
+)
+from auto_cyber_news.notifications.telegram import (
+    MAX_RETRY_DELAY_SECONDS,
+    TelegramApiError,
+    TelegramNotifier,
+    _parse_retry_after,
 )
 from auto_cyber_news.notifications.telegram import escape_telegram_markdown as telegram_escape
+
+_SMTP_ENV_VARS = (
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_USERNAME",
+    "SMTP_PASSWORD",
+    "SMTP_USER",
+    "SMTP_PASS",
+    "EMAIL_FROM",
+    "EMAIL_TO",
+)
 
 
 def test_escape_telegram_markdown_escapes_special_characters() -> None:
@@ -33,3 +58,143 @@ def test_format_telegram_alert_includes_core_fields() -> None:
     assert "95/100" in message
     assert "CVE\\-2026\\-1234" in message
     assert "example\\.com/story" in message
+
+
+def _incident_card(**overrides: object) -> str:
+    params: dict[str, object] = {
+        "title": "Active ransomware exploit",
+        "severity": "critical",
+        "risk_score": 95,
+        "sources": ("The Hacker News",),
+        "categories": ("ransomware", "exploit"),
+        "detected_cves": ("CVE-2026-1234",),
+        "related_articles": (
+            ("Active ransomware exploit", "https://example.com/story", "The Hacker News"),
+        ),
+        "ai_summary": "Attackers are actively exploiting the flaw to deploy ransomware.",
+    }
+    params.update(overrides)
+    return format_telegram_incident_alert(**params)  # type: ignore[arg-type]
+
+
+def test_incident_card_has_structured_sections() -> None:
+    """The incident card should render fixed emoji-labelled sections and dividers."""
+    message = _incident_card()
+
+    assert message.startswith(CARD_DIVIDER)
+    assert message.rstrip().endswith(CARD_DIVIDER)
+    assert "🚨 *\\[INCIDENT CRITICAL\\]* Risk: 95/100" in message
+    assert "📌 *Title:*" in message
+    assert "🧠 *AI Summary:*" in message
+    assert "🏷 *Categories:*" in message
+    assert "⚠ *CVEs:*" in message
+    assert "📰 *Sources:*" in message
+
+
+def test_incident_card_summary_falls_back_to_title_when_ai_missing() -> None:
+    """Summary must never be empty: fall back to the headline."""
+    message = _incident_card(ai_summary="", title="Critical zero-day in widget")
+
+    summary_block = message.split("🧠 *AI Summary:*\n", 1)[1].split("\n\n", 1)[0]
+    assert summary_block.strip() == escape_telegram_markdown("Critical zero-day in widget")
+
+
+def test_incident_card_truncates_cves_with_remainder() -> None:
+    """CVE lists must be truncated to 10 with a '+N more' remainder marker."""
+    cves = tuple(f"CVE-2026-{number:04d}" for number in range(15))
+    message = _incident_card(detected_cves=cves)
+
+    assert "CVE\\-2026\\-0009" in message
+    assert "CVE\\-2026\\-0010" not in message
+    assert escape_telegram_markdown("... +5 more") in message
+
+
+def test_incident_card_deduplicates_sources() -> None:
+    """Repeated article rows (same URL) should appear once in the source list."""
+    rows = (
+        ("Ransomware hits hospital", "https://a.example/story", "Site A"),
+        ("Ransomware hits hospital", "https://a.example/story", "Site A"),
+        ("Different angle", "https://b.example/story", "Site B"),
+    )
+    message = _incident_card(related_articles=rows)
+
+    assert message.count(escape_telegram_markdown("https://a.example/story")) == 1
+
+
+def test_incident_card_lists_overflow_under_related() -> None:
+    """Articles beyond the source cap should move to the Related section."""
+    rows = tuple((f"Story {index}", f"https://example.com/{index}", "Site") for index in range(8))
+    message = _incident_card(related_articles=rows, max_related_articles=5)
+
+    assert "🔗 *Related:*" in message
+    assert "Story 7" in message
+
+
+def test_incident_card_respects_telegram_length_limit() -> None:
+    """A huge incident must still produce a message under the Telegram cap."""
+    rows = tuple(
+        (
+            f"Story number {index} with a fairly long headline",
+            f"https://example.com/{index}",
+            "Site",
+        )
+        for index in range(200)
+    )
+    message = _incident_card(
+        related_articles=rows,
+        detected_cves=tuple(f"CVE-2026-{index:05d}" for index in range(50)),
+    )
+
+    assert len(message) <= TELEGRAM_MAX_CHARS
+
+
+def test_parse_retry_after_reads_header_and_body() -> None:
+    """A 429 retry-after hint should be parsed from either header or JSON body."""
+    assert _parse_retry_after({"Retry-After": "5"}, "") == 5
+    body = json.dumps({"ok": False, "parameters": {"retry_after": 9}})
+    assert _parse_retry_after({}, body) == 9
+    assert _parse_retry_after({}, "not json") is None
+
+
+def test_retry_delay_respects_retry_after_and_caps() -> None:
+    """The 429 backoff honors retry_after but never exceeds the cap."""
+    capped = TelegramNotifier._retry_delay(
+        TelegramApiError("rate limited", status=429, retry_after=600),
+        0,
+    )
+    assert capped == float(MAX_RETRY_DELAY_SECONDS)
+
+    backoff = TelegramNotifier._retry_delay(TelegramApiError("boom", status=500), 2)
+    assert backoff == 4.0
+
+
+def test_load_email_settings_prefers_canonical_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SMTP_USERNAME/PASSWORD and EMAIL_FROM are the canonical variables."""
+    for name in _SMTP_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "canonical-user")
+    monkeypatch.setenv("SMTP_PASSWORD", "canonical-pass")
+    monkeypatch.setenv("EMAIL_FROM", "alerts@example.com")
+    monkeypatch.setenv("EMAIL_TO", "soc@example.com")
+
+    settings = load_email_settings()
+
+    assert settings.smtp_user == "canonical-user"
+    assert settings.smtp_pass == "canonical-pass"
+    assert settings.email_from == "alerts@example.com"
+
+
+def test_load_email_settings_falls_back_to_legacy_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Legacy SMTP_USER/SMTP_PASS still work; EMAIL_FROM defaults to the user."""
+    for name in _SMTP_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USER", "legacy-user")
+    monkeypatch.setenv("SMTP_PASS", "legacy-pass")
+    monkeypatch.setenv("EMAIL_TO", "soc@example.com")
+
+    settings = load_email_settings()
+
+    assert settings.smtp_user == "legacy-user"
+    assert settings.email_from == "legacy-user"

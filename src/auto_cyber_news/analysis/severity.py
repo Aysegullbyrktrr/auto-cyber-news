@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from auto_cyber_news.analysis.cve import extract_cvss_score
 from auto_cyber_news.analysis.text import build_analysis_text
 from auto_cyber_news.config.models import AnalysisConfig, SourceConfig
 from auto_cyber_news.models.article import NormalizedArticle, SeverityLevel, SeverityScore
@@ -11,6 +12,15 @@ from auto_cyber_news.models.article import NormalizedArticle, SeverityLevel, Sev
 CVE_WEIGHT = 15
 ZERO_DAY_WEIGHT = 25
 EXPLOIT_IN_THE_WILD_WEIGHT = 35
+
+# CVSS base score is the most authoritative severity signal when present, so a
+# quietly-worded but high-CVSS advisory still scores high (avoids false negatives).
+CVSS_CRITICAL_THRESHOLD = 9.0
+CVSS_HIGH_THRESHOLD = 7.0
+CVSS_MEDIUM_THRESHOLD = 4.0
+CVSS_CRITICAL_WEIGHT = 40
+CVSS_HIGH_WEIGHT = 25
+CVSS_MEDIUM_WEIGHT = 10
 
 # Category boosts (keys are normalized category ids).
 CATEGORY_WEIGHTS: dict[str, int] = {
@@ -74,6 +84,8 @@ def score_article(
     if _has_exploit_in_the_wild(haystack):
         score += EXPLOIT_IN_THE_WILD_WEIGHT
         reasons.append(f"keyword:exploit-in-the-wild(+{EXPLOIT_IN_THE_WILD_WEIGHT})")
+
+    score += _cvss_boost(haystack, reasons)
 
     for rule in config.severity_rules:
         if any(term.casefold() in haystack for term in rule.terms):
@@ -233,6 +245,23 @@ def _level_for_score(score: int, config: AnalysisConfig) -> SeverityLevel:
     if score >= thresholds.medium:
         return SeverityLevel.MEDIUM
     return SeverityLevel.LOW
+
+
+def _cvss_boost(haystack: str, reasons: list[str]) -> int:
+    """Score the authoritative CVSS base severity when the article reports one."""
+    cvss = extract_cvss_score(haystack)
+    if cvss is None:
+        return 0
+    if cvss >= CVSS_CRITICAL_THRESHOLD:
+        weight = CVSS_CRITICAL_WEIGHT
+    elif cvss >= CVSS_HIGH_THRESHOLD:
+        weight = CVSS_HIGH_WEIGHT
+    elif cvss >= CVSS_MEDIUM_THRESHOLD:
+        weight = CVSS_MEDIUM_WEIGHT
+    else:
+        return 0
+    reasons.append(f"cvss:{cvss}(+{weight})")
+    return weight
 
 
 def _has_exploit_in_the_wild(haystack: str) -> bool:

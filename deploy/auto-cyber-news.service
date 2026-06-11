@@ -8,16 +8,32 @@ Type=simple
 User=auto-cyber-news
 Group=auto-cyber-news
 WorkingDirectory=/opt/auto-cyber-news
+# Secrets (TELEGRAM_*, SMTP_*, GEMINI_API_KEY/ANTHROPIC_API_KEY, EMAIL_*) live here, root-owned 0600.
+# The leading '-' makes the unit start even if the file is absent.
+EnvironmentFile=-/etc/auto-cyber-news/auto-cyber-news.env
 Environment=APP_ENV=production
+Environment=LOG_FORMAT=json
 Environment=PYTHONPATH=/opt/auto-cyber-news/src
-Environment=SCHEDULER_INTERVAL_MINUTES=15
+Environment=SCHEDULER_INTERVAL_MINUTES=60
 Environment=ALERTS_DRY_RUN=false
+Environment=RETENTION_DAYS=30
 ExecStart=/opt/auto-cyber-news/.venv/bin/python -m auto_cyber_news run-scheduler
 ExecStop=/bin/kill -TERM $MAINPID
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=30
 KillSignal=SIGTERM
+
+# Hardening: the daemon makes outbound HTTP to many untrusted feeds, so limit
+# its blast radius. It only needs to write the SQLite data and log directories.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/opt/auto-cyber-news/data /opt/auto-cyber-news/logs
 
 StandardOutput=journal
 StandardError=journal

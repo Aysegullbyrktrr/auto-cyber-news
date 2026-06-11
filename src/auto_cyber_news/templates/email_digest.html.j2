@@ -29,6 +29,9 @@
             <tr>
               <td>
                 <strong>{{ article.title }}</strong><br>
+                {% if article.ai_summary %}
+                  {{ article.ai_summary }}<br>
+                {% endif %}
                 <a href="{{ article.url }}">{{ article.url }}</a>
               </td>
               <td>{{ article.severity | upper }}<br>{{ article.risk_score }}/100</td>

@@ -72,6 +72,7 @@ class EnrichedArticle:
     detected_cves: tuple[str, ...]
     categories: tuple[str, ...]
     risk_score: int
+    ai_summary: str
     is_critical: bool
     should_alert_telegram: bool
     should_include_in_email_digest: bool
@@ -86,6 +87,7 @@ class EnrichedArticle:
                 "detected_cves": list(self.detected_cves),
                 "categories": list(self.categories),
                 "risk_score": self.risk_score,
+                "ai_summary": self.ai_summary,
                 "is_critical": self.is_critical,
                 "should_alert_telegram": self.should_alert_telegram,
                 "should_include_in_email_digest": self.should_include_in_email_digest,

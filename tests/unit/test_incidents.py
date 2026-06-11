@@ -188,6 +188,7 @@ def _enriched(
         detected_cves=cves,
         categories=categories,
         risk_score=risk_score,
+        ai_summary="Incident summary",
         is_critical=severity is SeverityLevel.CRITICAL,
         should_alert_telegram=True,
         should_include_in_email_digest=True,

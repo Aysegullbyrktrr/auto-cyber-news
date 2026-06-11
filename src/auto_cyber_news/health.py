@@ -97,11 +97,11 @@ def _ingestion_is_stale(ingestion_last_run: str) -> bool:
     except ValueError:
         return True
     if last_run.tzinfo is None:
-        last_run = last_run.replace(tzinfo=timezone.utc)
+        last_run = last_run.replace(tzinfo=timezone.utc)  # noqa: UP017
 
     interval_minutes = _scheduler_interval_minutes()
     stale_after = timedelta(minutes=interval_minutes * STALE_INGESTION_MULTIPLIER)
-    return datetime.now(timezone.utc) - last_run > stale_after
+    return datetime.now(timezone.utc) - last_run > stale_after  # noqa: UP017
 
 
 def _scheduler_interval_minutes() -> int:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 from dataclasses import dataclass
 
@@ -9,9 +11,28 @@ import aiohttp
 
 from auto_cyber_news.notifications.formatting import escape_telegram_markdown
 
+MAX_SEND_ATTEMPTS = 4
+MAX_RETRY_DELAY_SECONDS = 60
+REQUEST_TIMEOUT_SECONDS = 20
+
 
 class TelegramConfigurationError(ValueError):
     """Raised when Telegram credentials are missing or invalid."""
+
+
+class TelegramApiError(RuntimeError):
+    """Raised when the Telegram API returns an error response."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        retry_after: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retry_after = retry_after
 
 
 @dataclass(frozen=True)
@@ -77,14 +98,35 @@ class TelegramNotifier:
         if parse_mode:
             payload["parse_mode"] = parse_mode
 
-        session = await self._get_session()
-        timeout = aiohttp.ClientTimeout(total=20)
-        async with session.post(url, json=payload, timeout=timeout) as response:
-            body = await response.text()
-            if response.status >= 400:
-                raise RuntimeError(
-                    f"Telegram API request failed ({response.status}): {body[:500]}",
-                )
+        last_error: RuntimeError | None = None
+        for attempt in range(MAX_SEND_ATTEMPTS):
+            try:
+                await self._post_message(url, payload)
+                return
+            except TelegramApiError as exc:
+                last_error = exc
+                # Permanent client errors (e.g. malformed MarkdownV2 → 400) will
+                # never succeed on retry; fail fast instead of hammering the API.
+                if exc.status is not None and 400 <= exc.status < 500 and exc.status != 429:
+                    raise
+                delay = self._retry_delay(exc, attempt)
+            except (aiohttp.ClientError, TimeoutError) as exc:
+                last_error = TelegramApiError(f"Telegram request error: {exc}")
+                delay = min(2**attempt, MAX_RETRY_DELAY_SECONDS)
+
+            if attempt == MAX_SEND_ATTEMPTS - 1:
+                break
+            await asyncio.sleep(delay)
+
+        if last_error is not None:
+            raise last_error
+
+    @staticmethod
+    def _retry_delay(error: TelegramApiError, attempt: int) -> float:
+        """Respect Telegram's ``retry_after`` on 429, else exponential backoff."""
+        if error.status == 429 and error.retry_after is not None:
+            return float(min(error.retry_after, MAX_RETRY_DELAY_SECONDS))
+        return float(min(2**attempt, MAX_RETRY_DELAY_SECONDS))
 
     async def close(self) -> None:
         """Close the owned HTTP session."""
@@ -95,3 +137,46 @@ class TelegramNotifier:
         if self._session is None:
             self._session = aiohttp.ClientSession()
         return self._session
+
+    async def _post_message(self, url: str, payload: dict[str, object]) -> None:
+        session = await self._get_session()
+        timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
+        async with session.post(url, json=payload, timeout=timeout) as response:
+            body = await response.text()
+            if response.status >= 400:
+                retry_after = (
+                    _parse_retry_after(response.headers, body) if response.status == 429 else None
+                )
+                raise TelegramApiError(
+                    f"Telegram API request failed ({response.status}): {body[:500]}",
+                    status=response.status,
+                    retry_after=retry_after,
+                )
+
+
+def _parse_retry_after(headers: object, body: str) -> int | None:
+    """Extract a retry-after hint from Telegram's 429 response."""
+    header_value = None
+    if isinstance(headers, dict):
+        header_value = headers.get("Retry-After")
+    else:
+        getter = getattr(headers, "get", None)
+        if callable(getter):
+            header_value = getter("Retry-After")
+    if header_value is not None:
+        try:
+            return max(1, int(str(header_value).strip()))
+        except (TypeError, ValueError):
+            pass
+
+    try:
+        parsed = json.loads(body)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(parsed, dict):
+        parameters = parsed.get("parameters")
+        if isinstance(parameters, dict):
+            retry_after = parameters.get("retry_after")
+            if isinstance(retry_after, int):
+                return max(1, retry_after)
+    return None

@@ -39,9 +39,9 @@ def evaluate_telegram_suppression(
 
     last_alerted_at = datetime.fromisoformat(last_alert.alerted_at)
     if last_alerted_at.tzinfo is None:
-        last_alerted_at = last_alerted_at.replace(tzinfo=timezone.utc)
+        last_alerted_at = last_alerted_at.replace(tzinfo=timezone.utc)  # noqa: UP017
 
-    elapsed = datetime.now(timezone.utc) - last_alerted_at
+    elapsed = datetime.now(timezone.utc) - last_alerted_at  # noqa: UP017
     if elapsed >= timedelta(hours=cooldown_hours):
         return AlertSuppressionDecision(True, "cooldown_elapsed")
 

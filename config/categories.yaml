@@ -20,9 +20,11 @@ categories:
   - id: data_breach
     name: Data Breach
     keywords: ["breach", "leak", "exposed data"]
+    exclude_keywords: ["memory leak", "leak detection"]
   - id: nation_state
     name: Nation-State
     keywords: ["apt", "nation-state", "state-sponsored"]
+    exclude_keywords: ["apt-get", "apt install", "apt package", "apt repository"]
   - id: supply_chain
     name: Supply Chain
     keywords: ["supply chain", "dependency", "package repository"]

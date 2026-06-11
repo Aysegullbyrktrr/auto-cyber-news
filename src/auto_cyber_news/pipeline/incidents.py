@@ -81,11 +81,22 @@ def group_into_incidents(articles: tuple[EnrichedArticle, ...]) -> tuple[Securit
     incidents: list[SecurityIncident] = []
     for group in grouped.values():
         incident_articles = tuple(
-            sorted(group, key=lambda article: (-_SEVERITY_ORDER[article.severity], -article.risk_score)),
+            sorted(
+                group,
+                key=lambda article: (-_SEVERITY_ORDER[article.severity], -article.risk_score),
+            ),
         )
         incidents.append(_build_incident(incident_articles))
 
-    return tuple(sorted(incidents, key=lambda incident: (-_SEVERITY_ORDER[incident.max_severity], -incident.max_risk_score)))
+    return tuple(
+        sorted(
+            incidents,
+            key=lambda incident: (
+                -_SEVERITY_ORDER[incident.max_severity],
+                -incident.max_risk_score,
+            ),
+        ),
+    )
 
 
 def generate_incident_id(articles: tuple[EnrichedArticle, ...]) -> str:
@@ -144,9 +155,7 @@ def _articles_related(left: EnrichedArticle, right: EnrichedArticle) -> bool:
         return True
     if _shared_incident_keywords(left, right):
         return True
-    if _same_domain_and_similar_title(left, right):
-        return True
-    return False
+    return _same_domain_and_similar_title(left, right)
 
 
 def _content_hash_prefix_match(left_hash: str, right_hash: str) -> bool:
@@ -217,7 +226,10 @@ def _article_domain(url: str) -> str:
 
 
 def _lead_article(articles: tuple[EnrichedArticle, ...]) -> EnrichedArticle:
-    return max(articles, key=lambda article: (_SEVERITY_ORDER[article.severity], article.risk_score))
+    return max(
+        articles,
+        key=lambda article: (_SEVERITY_ORDER[article.severity], article.risk_score),
+    )
 
 
 class _UnionFind:

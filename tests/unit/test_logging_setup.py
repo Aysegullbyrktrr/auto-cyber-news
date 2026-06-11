@@ -19,7 +19,7 @@ def test_json_logging_includes_required_fields(capsys: pytest.CaptureFixture[str
     with correlation_context("test-correlation-id"):
         logger.info("hello", extra={"component": "unit-test"})
 
-    captured = capsys.readouterr().out
+    captured = capsys.readouterr().err
     payload = json.loads(captured)
 
     assert payload["level"] == "INFO"

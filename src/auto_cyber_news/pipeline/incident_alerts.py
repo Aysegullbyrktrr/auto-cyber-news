@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import smtplib
+import uuid
 from datetime import datetime, timezone
 
 from auto_cyber_news.config.models import Config
 from auto_cyber_news.db.connection import connect
 from auto_cyber_news.db.incident_repository import IncidentRepository
+from auto_cyber_news.db.repositories import DigestRecord, create_repositories
 from auto_cyber_news.logging import get_logger
 from auto_cyber_news.models.incident import SecurityIncident
 from auto_cyber_news.notifications.email import (
@@ -24,6 +26,7 @@ from auto_cyber_news.notifications.telegram import (
 )
 from auto_cyber_news.pipeline.alert_suppression import evaluate_telegram_suppression
 from auto_cyber_news.pipeline.incidents import MAX_RELATED_ARTICLES_IN_ALERT
+from auto_cyber_news.utils.time import utc_now
 
 LOGGER = get_logger(__name__)
 
@@ -81,6 +84,7 @@ async def dispatch_telegram_incident_alerts(
                 categories=incident.categories,
                 detected_cves=incident.detected_cves,
                 related_articles=_related_article_rows(incident),
+                ai_summary=incident.articles[0].ai_summary,
                 max_related_articles=MAX_RELATED_ARTICLES_IN_ALERT,
             )
             await notifier.send_message(message)
@@ -112,19 +116,21 @@ async def send_email_digest_for_incidents(
     incidents: tuple[SecurityIncident, ...],
     config: Config,
     *,
-    last_digest_sent_at: datetime | None,
-) -> datetime | None:
-    """Send a digest email using one lead article per qualifying incident."""
-    if last_digest_sent_at is not None:
-        elapsed = datetime.now(timezone.utc) - last_digest_sent_at
-        if elapsed.total_seconds() < config.digest.window_hours * 3600:
-            return last_digest_sent_at
+    digest_date: str | None = None,
+) -> bool:
+    """Send a digest email at most once per UTC date; return whether one was sent.
+
+    Idempotency is enforced through the ``sent_digest`` table rather than an
+    in-memory marker, so cron/run-once invocations and process restarts cannot
+    produce duplicate digests for the same day.
+    """
+    resolved_date = digest_date or datetime.now(timezone.utc).date().isoformat()  # noqa: UP017
 
     digest_incidents = tuple(
         incident for incident in incidents if incident.should_include_in_email_digest()
     )
     if not digest_incidents:
-        return last_digest_sent_at
+        return False
 
     ranked = sorted(
         digest_incidents,
@@ -133,40 +139,57 @@ async def send_email_digest_for_incidents(
     )[: config.digest.max_articles]
 
     if config.alerts.dry_run:
-        LOGGER.info(
-            "Email digest skipped (dry run)",
-            extra={"incident_count": len(ranked)},
-        )
-        return datetime.now(timezone.utc)
+        LOGGER.info("Email digest skipped (dry run)", extra={"incident_count": len(ranked)})
+        return False
 
     if not is_email_configured():
         LOGGER.warning(
             "Email digest skipped (not configured)",
             extra={"incident_count": len(ranked)},
         )
-        return last_digest_sent_at
+        return False
 
-    payloads = tuple(_digest_payload_for_incident(incident) for incident in ranked)
-    notifier = EmailNotifier.from_env()
-    digest_date = datetime.now(timezone.utc).date().isoformat()
-
+    connection = connect(config.database.sqlite_path)
+    repositories = create_repositories(connection)
     try:
+        if repositories.digests.get_by_date(resolved_date) is not None:
+            LOGGER.info(
+                "Email digest already sent for date",
+                extra={"digest_date": resolved_date},
+            )
+            return False
+
+        payloads = tuple(_digest_payload_for_incident(incident) for incident in ranked)
+        notifier = EmailNotifier.from_env()
         subject = await notifier.send_daily_digest(
             subject_prefix=config.digest.subject_prefix,
-            digest_date=digest_date,
+            digest_date=resolved_date,
             articles=payloads,
         )
+        repositories.digests.create(
+            DigestRecord(
+                id=str(uuid.uuid4()),
+                digest_date=resolved_date,
+                recipient=notifier.recipient,
+                subject=subject,
+                sent_at=utc_now().isoformat(),
+                article_count=len(payloads),
+            ),
+        )
+        connection.commit()
         LOGGER.info(
             "Email digest sent",
             extra={"subject": subject, "incident_count": len(payloads)},
         )
-        return datetime.now(timezone.utc)
+        return True
     except EmailConfigurationError:
         LOGGER.exception("Email configuration error")
     except (OSError, smtplib.SMTPException):
         LOGGER.exception("Email digest delivery failed")
+    finally:
+        connection.close()
 
-    return last_digest_sent_at
+    return False
 
 
 def _related_article_rows(incident: SecurityIncident) -> tuple[tuple[str, str, str], ...]:
@@ -188,4 +211,5 @@ def _digest_payload_for_incident(incident: SecurityIncident) -> DigestArticlePay
         risk_score=incident.max_risk_score,
         categories=incident.categories,
         detected_cves=incident.detected_cves,
+        ai_summary=lead.ai_summary,
     )

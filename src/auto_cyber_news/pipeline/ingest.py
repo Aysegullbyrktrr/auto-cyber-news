@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass
 
 from auto_cyber_news.config.models import Config, SourceConfig
-from auto_cyber_news.fetchers.http import AsyncHttpClient, FetchError, HttpClientConfig
+from auto_cyber_news.fetchers.http import AsyncHttpClient, HttpClientConfig
 from auto_cyber_news.fetchers.registry import build_http_client, get_fetcher
 from auto_cyber_news.logging import get_logger
 from auto_cyber_news.models.article import NormalizedArticle
@@ -51,31 +51,36 @@ async def run_ingestion(
     )
     semaphore = asyncio.Semaphore(config.http.max_concurrency)
 
-    source_results = await asyncio.gather(
-        *(_run_source(source, client, semaphore) for source in enabled_sources),
-        return_exceptions=False,
-    )
-    all_articles = [
-        article for source_result in source_results for article in source_result.articles
-    ]
-    deduplicated_articles = deduplicate_articles(all_articles)
+    try:
+        gathered_results = await asyncio.gather(
+            *(_run_source(source, client, semaphore) for source in enabled_sources),
+            return_exceptions=True,
+        )
+        source_results = tuple(
+            _coerce_source_result(enabled_sources[index], gathered_result)
+            for index, gathered_result in enumerate(gathered_results)
+        )
+        all_articles = [
+            article for source_result in source_results for article in source_result.articles
+        ]
+        deduplicated_articles = deduplicate_articles(all_articles)
 
-    LOGGER.info(
-        "Ingestion completed",
-        extra={
-            "sources_attempted": len(enabled_sources),
-            "sources_failed": sum(1 for result in source_results if result.error is not None),
-            "articles_seen": len(all_articles),
-            "articles_after_dedup": len(deduplicated_articles),
-        },
-    )
-    result = IngestionResult(
-        articles=tuple(deduplicated_articles),
-        source_results=tuple(source_results),
-    )
-    if owns_client:
-        await client.close()
-    return result
+        LOGGER.info(
+            "Ingestion completed",
+            extra={
+                "sources_attempted": len(enabled_sources),
+                "sources_failed": sum(1 for result in source_results if result.error is not None),
+                "articles_seen": len(all_articles),
+                "articles_after_dedup": len(deduplicated_articles),
+            },
+        )
+        return IngestionResult(
+            articles=tuple(deduplicated_articles),
+            source_results=source_results,
+        )
+    finally:
+        if owns_client:
+            await client.close()
 
 
 async def _run_source(
@@ -107,12 +112,30 @@ async def _run_source(
                 },
             )
             return SourceIngestionResult(source_id=source.id, articles=tuple(articles))
-        except (FetchError, ValueError, RuntimeError) as exc:
+        except Exception as exc:
             LOGGER.error(
                 "Source ingestion failed",
                 extra={"source_id": source.id, "error": str(exc)},
             )
             return SourceIngestionResult(source_id=source.id, articles=(), error=str(exc))
+
+
+def _coerce_source_result(
+    source_config: SourceConfig,
+    gathered_result: SourceIngestionResult | BaseException,
+) -> SourceIngestionResult:
+    """Convert gather output into a stable per-source result."""
+    if isinstance(gathered_result, SourceIngestionResult):
+        return gathered_result
+    LOGGER.error(
+        "Source ingestion task failed",
+        extra={"source_id": source_config.id, "error": str(gathered_result)},
+    )
+    return SourceIngestionResult(
+        source_id=source_config.id,
+        articles=(),
+        error=str(gathered_result),
+    )
 
 
 def _source_from_config(source_config: SourceConfig) -> Source:

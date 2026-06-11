@@ -2,14 +2,23 @@ services:
   auto-cyber-news:
     build:
       context: .
+    # Copy .env.example to .env and fill in secrets before `docker compose up`.
     env_file:
       - .env
     environment:
       APP_ENV: production
       CONFIG_DIR: /app/config
       SQLITE_PATH: /app/data/auto-cyber-news.db
+      LOG_FORMAT: json
+      SCHEDULER_INTERVAL_MINUTES: "60"
     volumes:
       - ./data:/app/data
       - ./config:/app/config:ro
-    command: ["--help"]
-
+    command: ["run-scheduler"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "auto-cyber-news", "health-check"]
+      interval: 5m
+      timeout: 30s
+      start_period: 90s
+      retries: 3

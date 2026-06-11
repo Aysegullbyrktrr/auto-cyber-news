@@ -1,15 +1,16 @@
-"""Render or send a test digest through the package pipeline."""
+"""Render and send a daily digest through the package CLI."""
 
 from __future__ import annotations
 
-from auto_cyber_news.pipeline.digest import send_digest
+import sys
+
+from auto_cyber_news.cli import main
 
 
-def main() -> None:
-    """Execute the digest workflow."""
-    send_digest()
+def run() -> int:
+    """Execute the digest workflow via the CLI entry point."""
+    return main(["digest"])
 
 
 if __name__ == "__main__":
-    main()
-
+    sys.exit(run())

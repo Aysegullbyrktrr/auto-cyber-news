@@ -19,6 +19,6 @@ digest:
 
 alerts:
   critical_freshness_minutes: 180
-  dry_run: ${ALERTS_DRY_RUN:-true}
+  dry_run: ${ALERTS_DRY_RUN:-false}
   alert_cooldown_hours: ${ALERT_COOLDOWN_HOURS:-6}
 
