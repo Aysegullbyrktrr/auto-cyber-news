@@ -12,7 +12,10 @@ services:
       LOG_FORMAT: json
       SCHEDULER_INTERVAL_MINUTES: "60"
     volumes:
-      - ./data:/app/data
+      # Named volume (not a host bind mount) so the container's non-root "app"
+      # user owns it and can write the SQLite database. Avoids host UID/GID
+      # permission mismatches. Back up via `docker compose cp` (see DEPLOYMENT.md).
+      - acn-data:/app/data
       - ./config:/app/config:ro
     command: ["run-scheduler"]
     restart: unless-stopped
@@ -22,3 +25,6 @@ services:
       timeout: 30s
       start_period: 90s
       retries: 3
+
+volumes:
+  acn-data:

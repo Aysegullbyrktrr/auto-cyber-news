@@ -61,12 +61,13 @@ EMAIL_TO=
 ## 4. Start it (24/7)
 
 ```bash
-mkdir -p data
 docker compose up -d --build
 ```
 
 That's it — it's now running and will survive reboots (`restart: unless-stopped`
-+ Docker enabled on boot).
++ Docker enabled on boot). The SQLite database lives in a Docker-managed named
+volume (`acn-data`), so the non-root container user can write it without any
+host permission setup.
 
 ## 5. Verify
 
@@ -101,11 +102,12 @@ git pull            # or rsync again
 docker compose up -d --build
 ```
 
-**Backup the database** (the only state worth keeping):
+**Backup the database** (the only state worth keeping — it's in the `acn-data`
+named volume):
 ```bash
 docker compose exec auto-cyber-news \
   sh -c 'sqlite3 /app/data/auto-cyber-news.db ".backup /app/data/backup.db"'
-cp data/backup.db ~/acn-backup-$(date +%F).db
+docker compose cp auto-cyber-news:/app/data/backup.db ./acn-backup-$(date +%F).db
 ```
 
 **Logs / stop / start:**
